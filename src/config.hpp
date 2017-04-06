@@ -15,4 +15,4 @@ private:
 
 };
 
-#endif // CONFIG_HPP
+#endif /* CONFIG_HPP */

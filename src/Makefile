@@ -1,6 +1,6 @@
 CXX=c++
 CXXFLAGS=-O2 -Wall -std=c++11
-LDFLAGS=
+LDFLAGS=-luv
 DEBUG=
 TARGET=cubalibre
 
@@ -12,7 +12,7 @@ TARGET=cubalibre
 all: $(TARGET)
 
 $(TARGET): main.o config.o
-	$(CXX) $(CXXFLAGS) $(DEBUG) -o $@ $^
+	$(CXX) $(CXXFLAGS) $(DEBUG) -o $@ $^ $(LDFLAGS)
 
 clean:
 	rm -f *.o $(TARGET)
