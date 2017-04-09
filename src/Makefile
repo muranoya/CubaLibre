@@ -1,22 +1,19 @@
-CC=cc
-CFLAGS=-O2 -Wall -pthread
+CXX=c++
+CXXFLAGS=-O2 -Wall -std=c++11 -pthread
 LDFLAGS=-luv 
 DEBUG=
 TARGET=cubalibre
 
 .PHONY: all clean
-.SUFFIXES: .o .c
-%.o: %.c
-	$(CC) $(CFLAGS) $(DEBUG) -c $<
+.SUFFIXES: .o .cpp
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) $(DEBUG) -c $<
 
 all: $(TARGET)
 
-$(TARGET): main.o hashmap.o util.o
-	$(CC) $(CFLAGS) $(DEBUG) -o $@ $^ $(LDFLAGS)
-
-hashmap: hashmap.c hashmap.h util.o
-	$(CC) $(CFLAGS) $(DEBUG) -DTEST_HASHMAP -o $@ $^
+$(TARGET): main.o httpheader.o
+	$(CXX) $(CXXFLAGS) $(DEBUG) -o $@ $^ $(LDFLAGS)
 
 clean:
-	rm -f *.o $(TARGET) hashmap
+	rm -f *.o $(TARGET)
 
