@@ -1,18 +1,18 @@
-CXX=c++
-CXXFLAGS=-O2 -Wall -std=c++11
-LDFLAGS=-luv
+CC=cc
+CFLAGS=-O2 -Wall -pthread
+LDFLAGS=-luv 
 DEBUG=
 TARGET=cubalibre
 
 .PHONY: all clean
-.SUFFIXES: .o .cpp
-%.o: %.cpp
-	$(CXX) $(CXXFLAGS) $(DEBUG) -c $<
+.SUFFIXES: .o .c
+%.o: %.c
+	$(CC) $(CFLAGS) $(DEBUG) -c $<
 
 all: $(TARGET)
 
-$(TARGET): main.o config.o
-	$(CXX) $(CXXFLAGS) $(DEBUG) -o $@ $^ $(LDFLAGS)
+$(TARGET): main.o
+	$(CC) $(CFLAGS) $(DEBUG) -o $@ $^ $(LDFLAGS)
 
 clean:
 	rm -f *.o $(TARGET)
