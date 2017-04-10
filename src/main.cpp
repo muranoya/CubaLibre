@@ -101,6 +101,139 @@ new_conn_cb(uv_stream_t *server, int status)
     }
 }
 
+static void
+do_bind(uv_getaddrinfo_t *req, int status, struct addrinfo *addrs)
+{
+    char addrbuf[INET6_ADDRSTRLEN + 1];
+    unsigned int ipv4_naddrs;
+    unsigned int ipv6_naddrs;
+    server_state *state;
+    server_config *cf;
+    struct addrinfo *ai;
+    const void *addrv;
+    const char *what;
+    uv_loop_t *loop;
+    server_ctx *sx;
+    unsigned int n;
+    int err;
+    union {
+        struct sockaddr addr;
+        struct sockaddr_in addr4;
+        struct sockaddr_in6 addr6;
+    } s;
+
+    state = CONTAINER_OF(req, server_state, getaddrinfo_req);
+    loop = state->loop;
+    cf = &state->config;
+
+    if (status < 0) {
+        pr_err("getaddrinfo(\"%s\"): %s", cf->bind_host, uv_strerror(status));
+        uv_freeaddrinfo(addrs);
+        return;
+    }
+
+    ipv4_naddrs = 0;
+    ipv6_naddrs = 0;
+    for (ai = addrs; ai != NULL; ai = ai->ai_next) {
+        if (ai->ai_family == AF_INET) {
+            ipv4_naddrs += 1;
+        } else if (ai->ai_family == AF_INET6) {
+            ipv6_naddrs += 1;
+        }
+    }
+
+    if (ipv4_naddrs == 0 && ipv6_naddrs == 0) {
+        pr_err("%s has no IPv4/6 addresses", cf->bind_host);
+        uv_freeaddrinfo(addrs);
+        return;
+    }
+
+    state->servers =
+        xmalloc((ipv4_naddrs + ipv6_naddrs) * sizeof(state->servers[0]));
+
+    n = 0;
+    for (ai = addrs; ai != NULL; ai = ai->ai_next) {
+        if (ai->ai_family != AF_INET && ai->ai_family != AF_INET6) {
+            continue;
+        }
+
+        if (ai->ai_family == AF_INET) {
+            s.addr4 = *(const struct sockaddr_in *) ai->ai_addr;
+            s.addr4.sin_port = htons(cf->bind_port);
+            addrv = &s.addr4.sin_addr;
+        } else if (ai->ai_family == AF_INET6) {
+            s.addr6 = *(const struct sockaddr_in6 *) ai->ai_addr;
+            s.addr6.sin6_port = htons(cf->bind_port);
+            addrv = &s.addr6.sin6_addr;
+        } else {
+            UNREACHABLE();
+        }
+
+        if (uv_inet_ntop(s.addr.sa_family, addrv, addrbuf, sizeof(addrbuf))) {
+            UNREACHABLE();
+        }
+
+        sx = state->servers + n;
+        sx->loop = loop;
+        sx->idle_timeout = state->config.idle_timeout;
+        CHECK(0 == uv_tcp_init(loop, &sx->tcp_handle));
+
+        what = "uv_tcp_bind";
+        err = uv_tcp_bind(&sx->tcp_handle, &s.addr, 0);
+        if (err == 0) {
+            what = "uv_listen";
+            err = uv_listen((uv_stream_t *) &sx->tcp_handle, 128, on_connection);
+        }
+
+        if (err != 0) {
+            pr_err("%s(\"%s:%hu\"): %s",
+                    what,
+                    addrbuf,
+                    cf->bind_port,
+                    uv_strerror(err));
+            while (n > 0) {
+                n -= 1;
+                uv_close((uv_handle_t *) (state->servers + n), NULL);
+            }
+            break;
+        }
+
+        pr_info("listening on %s:%hu", addrbuf, cf->bind_port);
+        n += 1;
+    }
+
+    uv_freeaddrinfo(addrs);
+}
+
+
+static void
+startserver(const char *host, uv_loop_t *loop)
+{
+    struct addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+
+    uv_getaddrinfo_t getaddrinfo_req;
+    if (uv_getaddrinfo(loop,
+            &getaddrinfo_req, do_bind,
+            host, NULL, &hints) != 0)
+    {
+        //pr_err("getaddrinfo: %s", uv_strerror(err));
+        return;
+    }
+
+    if (uv_run(loop, UV_RUN_DEFAULT))
+    {
+        return;
+    }
+
+    uv_loop_delete(loop);
+    free(state.servers);
+    return;
+}
+
 };
 
 int
