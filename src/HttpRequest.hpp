@@ -8,7 +8,7 @@
 namespace CubaLibre
 {
 
-class HttpHeader
+class HttpRequest
 {
 public:
     enum http_method
@@ -31,13 +31,13 @@ public:
         HTTPV_0_9,
     };
 
-    static HttpHeader *parseHeader(const char *str);
-    ~HttpHeader();
+    static HttpRequest *parseHeader(const char *str);
+    ~HttpRequest();
 
     std::string toString();
 
 private:
-    explicit HttpHeader();
+    explicit HttpRequest();
 
     http_method method;
     std::string req_uri;
@@ -50,7 +50,7 @@ private:
     static int nextWhiteSpace(const char *str);
     static std::string trim(const std::string &str);
 
-    static bool parseRequestLine(const std::string &str, HttpHeader &h);
+    static bool parseRequestLine(const std::string &str, HttpRequest &h);
 };
 
 }

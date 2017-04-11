@@ -11,7 +11,7 @@ TARGET=cubalibre
 
 all: $(TARGET)
 
-$(TARGET): main.o httpheader.o
+$(TARGET): main.o HttpRequest.o Server.o Config.o
 	$(CXX) $(CXXFLAGS) $(DEBUG) -o $@ $^ $(LDFLAGS)
 
 clean:

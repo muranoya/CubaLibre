@@ -1,11 +1,11 @@
 #include <cstring>
 #include <memory>
 #include <iostream>
-#include "httpheader.hpp"
+#include "HttpRequest.hpp"
 
 using namespace CubaLibre;
 
-HttpHeader::HttpHeader()
+HttpRequest::HttpRequest()
     : method(HTTP_INVALID)
     , req_uri("")
     , version(HTTPV_INVALID)
@@ -13,12 +13,12 @@ HttpHeader::HttpHeader()
 {
 }
 
-HttpHeader::~HttpHeader()
+HttpRequest::~HttpRequest()
 {
 }
 
 std::string
-HttpHeader::toString()
+HttpRequest::toString()
 {
     const std::string http_method_str[] = {
         "Invalid HTTP method",
@@ -49,10 +49,10 @@ HttpHeader::toString()
     return str;
 }
 
-HttpHeader *
-HttpHeader::parseHeader(const char *str)
+HttpRequest *
+HttpRequest::parseHeader(const char *str)
 {
-    std::unique_ptr<HttpHeader> h(new HttpHeader());
+    std::unique_ptr<HttpRequest> h(new HttpRequest());
 
     auto vec = split(std::string(str), "\r\n");
     auto iter = vec.cbegin();
@@ -69,7 +69,7 @@ HttpHeader::parseHeader(const char *str)
 }
 
 std::vector<std::string>
-HttpHeader::split(const std::string &str, const std::string &dlm, int n)
+HttpRequest::split(const std::string &str, const std::string &dlm, int n)
 {
     int b, i;
     std::vector<std::string> vec;
@@ -85,7 +85,7 @@ HttpHeader::split(const std::string &str, const std::string &dlm, int n)
 }
 
 const char *
-HttpHeader::skip(const char *str)
+HttpRequest::skip(const char *str)
 {
     while (*str != '\0' && *str != '\r'&& *str != '\n' &&
             *str == ' ') ++str;
@@ -93,7 +93,7 @@ HttpHeader::skip(const char *str)
 }
 
 int
-HttpHeader::nextWhiteSpace(const char *str)
+HttpRequest::nextWhiteSpace(const char *str)
 {
     const char *p = str;
     while (*p != '\0' && *p != '\r'&& *p != '\n' &&
@@ -102,7 +102,7 @@ HttpHeader::nextWhiteSpace(const char *str)
 }
 
 std::string
-HttpHeader::trim(const std::string &str)
+HttpRequest::trim(const std::string &str)
 {
     int s, e;
     const int len = str.length();
@@ -119,7 +119,7 @@ HttpHeader::trim(const std::string &str)
 }
 
 bool
-HttpHeader::parseRequestLine(const std::string &str, HttpHeader &h)
+HttpRequest::parseRequestLine(const std::string &str, HttpRequest &h)
 {
     const char *p = str.data();
 
