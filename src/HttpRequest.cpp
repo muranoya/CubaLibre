@@ -41,12 +41,33 @@ HttpRequest::toString()
     std::string str;
     str = http_method_str[method] + " " +
         req_uri + " " +
-        http_ver_str[version] + "\n";
+        http_ver_str[version] + "\r\n";
     for (auto &i : headers)
     {
-        str += i.first + ":" + i.second + "\n";
+        str += i.first + ":" + i.second + "\r\n";
     }
     return str;
+}
+
+void
+HttpRequest::removeProxyHeaders()
+{
+    headers.erase("Proxy-Connection");
+}
+
+std::pair<std::string, std::string>
+HttpRequest::dstHostname() const
+{
+    const std::string hostname = headers.at("Host");
+    auto pos = hostname.find(':');
+    std::string host = hostname.substr(0, pos);
+    std::string port = "80";
+    if (pos != std::string::npos)
+    {
+        port = hostname.substr(pos+1, std::string::npos).c_str();
+    }
+
+    return std::make_pair(host, port);
 }
 
 HttpRequest *
@@ -116,6 +137,36 @@ HttpRequest::trim(const std::string &str)
     }
 
     return str.substr(s, len-s-e);
+}
+
+std::string
+HttpRequest::convToBrowserURI(const std::string &uri)
+{
+    const std::string http_s("http://");
+    auto pos = uri.find(http_s);
+    if (pos == 0)
+    {
+        auto pos2 = uri.find('/', http_s.length());
+        if (pos2 == std::string::npos)
+        {
+            return "/";
+        }
+        return uri.substr(pos2, std::string::npos);
+    }
+    
+    const std::string https_s("https://");
+    pos = uri.find(https_s);
+    if (pos == 0)
+    {
+        auto pos2 = uri.find('/', https_s.length());
+        if (pos2 == std::string::npos)
+        {
+            return "/";
+        }
+        return uri.substr(pos2, std::string::npos);
+    }
+
+    return uri;
 }
 
 bool

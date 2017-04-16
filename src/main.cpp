@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <cstdlib>
 #include <unistd.h>
 #include "Server.hpp"
 #include "Config.hpp"
@@ -19,7 +20,7 @@ parse_opt(int argc, char *argv[], CubaLibre::Config &conf)
 {
     int opt;
 
-    conf.cache_path = "./";
+    conf.cache_path = "./cache/";
     conf.port = 8080;
 
     while ((opt = getopt(argc, argv, "d:p:h")) != -1)
@@ -30,7 +31,7 @@ parse_opt(int argc, char *argv[], CubaLibre::Config &conf)
                 conf.cache_path = optarg;
                 break;
             case 'p':
-                conf.port = atoi(optarg);
+                conf.port = std::atoi(optarg);
                 break;
             case 'h':
                 print_usage(argv[0]);

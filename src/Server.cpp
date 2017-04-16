@@ -10,111 +10,96 @@ const Config *Server::conf;
 void
 Server::start(const std::string &host, const Config *cf)
 {
-    conf = cf;
     uv_loop_t *loop = uv_default_loop();
+    conf = cf;
+
+    if (regist_getaddrinfo(loop, accept_getaddr_cb,
+                nullptr, host.c_str(), nullptr))
+    {
+        uv_run(loop, UV_RUN_DEFAULT);
+    }
+    uv_loop_delete(loop);
+}
+
+bool
+Server::regist_getaddrinfo(uv_loop_t *loop,
+        int (*f)(uv_tcp_t *handle, struct sockaddr *addr),
+        void *data, const char *host, const char *port)
+{
     struct addrinfo hints;
     std::memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_protocol = IPPROTO_TCP;
 
-    uv_getaddrinfo_t getaddrinfo_req;
-    if (uv_getaddrinfo(loop,
-            &getaddrinfo_req, tcp_bind_cb,
-            host.c_str(), NULL, &hints) != 0)
-    {
-        //pr_err("getaddrinfo: %s", uv_strerror(err));
-        return;
-    }
+    getaddr_s *cont = new getaddr_s;
+    cont->data = data;
+    cont->f = f;
 
-    if (uv_run(loop, UV_RUN_DEFAULT))
-    {
-        return;
-    }
+    uv_getaddrinfo_t *getaddrinfo_req = new uv_getaddrinfo_t;
+    getaddrinfo_req->data = cont;
 
-    uv_loop_delete(loop);
-    return;
+    int ret = uv_getaddrinfo(loop, getaddrinfo_req, getaddrinfo_cb,
+            host, port, &hints);
+    if (ret < 0)
+    {
+        std::cerr << "uv_getaddrinfo: " << uv_strerror(ret) << std::endl;
+        return false;
+    }
+    return true;
 }
 
 void
-Server::bufalloc_cb(uv_handle_t *handle, size_t size, uv_buf_t *buf)
+Server::alloc_buf_cb(uv_handle_t *handle, size_t size, uv_buf_t *buf)
 {
+    if (!buf->base)
+    {
+        delete[] buf->base;
+    }
     buf->base = new char[size];
     buf->len = size;
 }
 
 void
-Server::tcphandle_free_cb(uv_handle_t *handle)
+Server::free_tcphandle(uv_handle_t *handle)
 {
-    delete handle;
+    delete reinterpret_cast<uv_tcp_t*>(handle);
 }
 
 void
-Server::tcp_recv_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf)
+Server::getaddrinfo_cb(uv_getaddrinfo_t *req, int status, struct addrinfo *addrs)
 {
-    HttpRequest *header = HttpRequest::parseHeader(buf->base);
-    std::cerr << header->toString() << std::endl;
-
-    delete[] buf->base;
-    uv_close(reinterpret_cast<uv_handle_t*>(stream), tcphandle_free_cb);
-}
-
-void
-Server::new_conn_cb(uv_stream_t *server, int status)
-{
-    if (status == -1) return;
-
-    uv_tcp_t *cl = new uv_tcp_t;
-    uv_stream_t *scl = reinterpret_cast<uv_stream_t*>(cl);
-    uv_tcp_init(server->loop, cl);
-    if (uv_accept(server, scl) == 0)
-    {
-        uv_read_start(scl, bufalloc_cb, tcp_recv_cb);
-    }
-}
-
-void
-Server::tcp_bind_cb(uv_getaddrinfo_t *req, int status, struct addrinfo *addrs)
-{
-    char addrbuf[INET6_ADDRSTRLEN + 1];
-    unsigned int ipv4_naddrs;
-    unsigned int ipv6_naddrs;
-    const void *addrv;
-    const char *what;
-    int err;
-
-    uv_loop_t *loop = req->loop;
+    unsigned int n = 0U;
+    getaddr_s *cont = reinterpret_cast<getaddr_s*>(req->data);
 
     if (status < 0)
     {
         //pr_err("getaddrinfo(\"%s\"): %s", cf->bind_host, uv_strerror(status));
-        uv_freeaddrinfo(addrs);
-        return;
+        goto end;
     }
 
-    ipv4_naddrs = 0;
-    ipv6_naddrs = 0;
-    for (struct addrinfo *ai = addrs; ai != NULL; ai = ai->ai_next)
     {
-        if (ai->ai_family == AF_INET)
+        unsigned int ipv4_naddrs = 0U;
+        unsigned int ipv6_naddrs = 0U;
+        for (struct addrinfo *ai = addrs; ai != nullptr; ai = ai->ai_next)
         {
-            ipv4_naddrs += 1;
+            if (ai->ai_family == AF_INET)
+            {
+                ipv4_naddrs++;
+            }
+            else if (ai->ai_family == AF_INET6)
+            {
+                ipv6_naddrs++;
+            }
         }
-        else if (ai->ai_family == AF_INET6)
+        if (ipv4_naddrs == 0U && ipv6_naddrs == 0U)
         {
-            ipv6_naddrs += 1;
+            //pr_err("%s has no IPv4/6 addresses", cf->bind_host);
+            goto end;
         }
     }
 
-    if (ipv4_naddrs == 0 && ipv6_naddrs == 0)
-    {
-        //pr_err("%s has no IPv4/6 addresses", cf->bind_host);
-        uv_freeaddrinfo(addrs);
-        return;
-    }
-
-    unsigned int n = 0;
-    for (struct addrinfo *ai = addrs; ai != NULL; ai = ai->ai_next)
+    for (struct addrinfo *ai = addrs; ai != nullptr; ai = ai->ai_next)
     {
         union
         {
@@ -132,28 +117,22 @@ Server::tcp_bind_cb(uv_getaddrinfo_t *req, int status, struct addrinfo *addrs)
         {
             s.addr4 = *(const struct sockaddr_in *)ai->ai_addr;
             s.addr4.sin_port = htons(conf->port);
-            addrv = &s.addr4.sin_addr;
         }
         else if (ai->ai_family == AF_INET6)
         {
             s.addr6 = *(const struct sockaddr_in6 *)ai->ai_addr;
             s.addr6.sin6_port = htons(conf->port);
-            addrv = &s.addr6.sin6_addr;
         }
-
-        uv_inet_ntop(s.addr.sa_family, addrv, addrbuf, sizeof(addrbuf));
+        else
+        {
+            continue;
+        }
 
         uv_tcp_t *tcp_handle = new uv_tcp_t;
-        uv_tcp_init(loop, tcp_handle);
+        uv_tcp_init(req->loop, tcp_handle);
+        tcp_handle->data = cont->data;
 
-        what = "uv_tcp_bind";
-        err = uv_tcp_bind(tcp_handle, &s.addr, 0);
-        if (err == 0)
-        {
-            what = "uv_listen";
-            err = uv_listen((uv_stream_t *)tcp_handle, 128, new_conn_cb);
-        }
-
+        int err = cont->f(tcp_handle, &s.addr);
         if (err != 0)
         {
             /*
@@ -165,16 +144,108 @@ Server::tcp_bind_cb(uv_getaddrinfo_t *req, int status, struct addrinfo *addrs)
             */
             while (n > 0)
             {
-                n -= 1;
-                uv_close((uv_handle_t*)tcp_handle, NULL);
+                n--;
+                uv_close((uv_handle_t*)tcp_handle, nullptr);
             }
             break;
         }
 
         //pr_info("listening on %s:%hu", addrbuf, cf->bind_port);
-        n += 1;
+        n++;
     }
 
+end:
+    delete cont;
+    delete req;
     uv_freeaddrinfo(addrs);
+}
+
+int
+Server::accept_getaddr_cb(uv_tcp_t *handle, struct sockaddr *addr)
+{
+    int err = uv_tcp_bind(handle, addr, 0);
+    if (err == 0)
+    {
+        err = uv_listen(reinterpret_cast<uv_stream_t*>(handle), 128, accept_cb);
+    }
+    else
+    {
+        uv_close(reinterpret_cast<uv_handle_t*>(handle), free_tcphandle);
+    }
+    return err;
+}
+
+void
+Server::accept_cb(uv_stream_t *server, int status)
+{
+    uv_tcp_t *cl = nullptr;
+    uv_stream_t *scl = nullptr;
+    if (status == -1)
+    {
+        std::cerr << "error on accept_cb" << std::endl;
+        goto end;
+    }
+
+    cl = new uv_tcp_t;
+    scl = reinterpret_cast<uv_stream_t*>(cl);
+    uv_tcp_init(uv_default_loop(), cl);
+    if (uv_accept(server, scl) == 0)
+    {
+        uv_read_start(scl, alloc_buf_cb, accept_read_cb);
+        return;
+    }
+
+end:
+    uv_close(reinterpret_cast<uv_handle_t*>(cl), free_tcphandle);
+}
+
+void
+Server::accept_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *buf)
+{
+    if (nread < 0)
+    {
+        delete[] buf->base;
+        uv_close(reinterpret_cast<uv_handle_t*>(stream), free_tcphandle);
+        return;
+    }
+
+    HttpRequest *header = HttpRequest::parseHeader(buf->base);
+    header->removeProxyHeaders();
+    //std::cerr << header->toString() << std::endl;
+    auto host = header->dstHostname();
+
+    regist_getaddrinfo(stream->loop, connect_getaddr_cb,
+            header, host.first.c_str(), host.second.c_str());
+}
+
+int
+Server::connect_getaddr_cb(uv_tcp_t *handle, struct sockaddr *addr)
+{
+    uv_connect_t *conn_req = new uv_connect_t;
+    conn_req->data = handle->data;
+    return uv_tcp_connect(conn_req, handle, addr, connect_cb);
+}
+
+void
+Server::connect_cb(uv_connect_t *req, int status)
+{
+    HttpRequest *header = static_cast<HttpRequest*>(req->data);
+    std::string req_str = header->toString();
+
+    uv_write_t *wreq = new uv_write_t;
+    uv_buf_t *buf = new uv_buf_t;
+    buf->base = new char[req_str.length()+1];
+    buf->len = req_str.length()+1;
+    std::memcpy(buf->base, req_str.c_str(), buf->len);
+
+    uv_write(wreq, reinterpret_cast<uv_stream_t*>(req), buf, 1, connect_write_cb);
+
+    delete header;
+}
+
+void
+Server::connect_write_cb(uv_write_t *req, int status)
+{
+    delete req;
 }
 

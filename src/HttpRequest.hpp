@@ -36,6 +36,10 @@ public:
 
     std::string toString();
 
+    void removeProxyHeaders();
+
+    std::pair<std::string, std::string> dstHostname() const;
+
 private:
     explicit HttpRequest();
 
@@ -49,6 +53,7 @@ private:
     static const char *skip(const char *str);
     static int nextWhiteSpace(const char *str);
     static std::string trim(const std::string &str);
+    static std::string convToBrowserURI(const std::string &uri);
 
     static bool parseRequestLine(const std::string &str, HttpRequest &h);
 };
