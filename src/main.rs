@@ -60,11 +60,11 @@ struct HttpRequest {
 
 impl fmt::Display for HttpRequest {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} {} {}\r\n", self.method, self.uri, self.version);
+        let _ = write!(f, "{} {} {}\r\n", self.method, self.uri, self.version);
         for (k, v) in self.headers.iter() {
-            write!(f, "{}: {}\r\n", k, v);
+            let _ = write!(f, "{}: {}\r\n", k, v);
         }
-        write!(f, "\r\n");
+        let _ = write!(f, "\r\n");
         write!(f, "{}", String::from_utf8(self.body.clone()).unwrap())
     }
 }
@@ -88,16 +88,16 @@ impl clone::Clone for HttpRequest {
     }
 }
 
-fn reply(sock: &mut TcpStream, res: HttpRequest) -> Result<(), &'static str> {
-    Ok(())
-}
+//fn reply(sock: &mut TcpStream, res: HttpRequest) -> Result<(), &'static str> {
+//    Ok(())
+//}
 
 fn sendrecv_data(mut req: HttpRequest) -> Result<HttpRequest, String> {
     let host = match req.headers.entry("Host".to_string()) {
         Occupied(e) => {
             e.get().clone()
         },
-        Vacant(e) => {
+        Vacant(_) => {
             return Err("Error: no host".to_string())
         },
     };
@@ -121,10 +121,10 @@ fn sendrecv_data(mut req: HttpRequest) -> Result<HttpRequest, String> {
 fn camouflage_client(req: &mut HttpRequest) {
     req.headers.remove("Proxy-Connection");
 
-    const schm: &str = "http://";
-    if &req.uri[0..schm.len()] == schm {
+    const SCHM: &str = "http://";
+    if &req.uri[0..SCHM.len()] == SCHM {
         let uri = req.uri.clone();
-        let substr = &uri[schm.len()..];
+        let substr = &uri[SCHM.len()..];
         match substr.find('/') {
             Some(pos) => {
                 req.uri = substr[pos..].to_string();
@@ -172,7 +172,7 @@ fn parse_header(head: String) -> Result<HttpRequest, &'static str> {
     }
 
     let mut body = Vec::new();
-    body.write_all(h[1].as_bytes());
+    let _ = body.write_all(h[1].as_bytes());
 
     Ok(HttpRequest {
         method:  cmd,
@@ -210,7 +210,7 @@ fn proxy(host: String) {
     let listener = TcpListener::bind(host).unwrap();
     loop {
         match listener.accept() {
-            Ok((mut sock, addr)) => {
+            Ok((mut sock, _)) => {
                 let mut req = read_data(&mut sock).unwrap();
                 camouflage_client(&mut req);
                 let response = sendrecv_data(req).unwrap();
