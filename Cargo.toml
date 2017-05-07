@@ -1,5 +1,4 @@
 [package]
-
-name = "CubaLibre"
+name = "cuba_libre"
 version = "0.0.1"
 authors = [ "Daisuke MURAOKA <daisuke.muraoka.jp@gmail.com>" ]
