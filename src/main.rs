@@ -6,6 +6,7 @@ use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::fmt;
 use std::clone;
 use std::thread;
+use std::env;
 
 #[derive(Clone)]
 enum HttpMethod {
@@ -89,6 +90,23 @@ impl clone::Clone for HttpRequest {
     }
 }
 
+struct RToption {
+    listen_addr: String,
+    listen_port: u16,
+}
+
+fn print_usage(args:&mut env::Args) {
+    println!("Usage: {} [port]", args.nth(0).unwrap());
+}
+
+fn set_options(args:&mut env::Args) -> Result<RToption, String> {
+    let o = RToption {
+        listen_addr: "0.0.0.0".to_string(),
+        listen_port: 8080,
+    };
+    Ok(o)
+}
+
 fn sendrecv_data(mut req: HttpRequest, mut sock: TcpStream) -> Result<(), String> {
     let host = match req.headers.entry("Host".to_string()) {
         Occupied(e) => {
@@ -120,7 +138,7 @@ fn sendrecv_data(mut req: HttpRequest, mut sock: TcpStream) -> Result<(), String
 
 fn camouflage_client(req: &mut HttpRequest) {
     req.headers.remove("Proxy-Connection");
-    /*  */
+    /* そのうちなんとかする */
     req.headers.remove("Accept-Encoding");
 
     const SCHM: &str = "http://";
@@ -186,8 +204,8 @@ fn parse_header(head: String) -> Result<HttpRequest, &'static str> {
 }
 
 fn read_data(sock: &mut TcpStream) -> Result<HttpRequest, std::io::Error> {
-    let to = Duration::new(30, 0);
-    let _ = sock.set_read_timeout(Some(to));
+    //let to = Duration::new(30, 0);
+    //let _ = sock.set_read_timeout(Some(to));
     
     let mut data: Vec<u8> = Vec::new();
     let mut buf = [0; 64*1024];
@@ -209,8 +227,8 @@ fn read_data(sock: &mut TcpStream) -> Result<HttpRequest, std::io::Error> {
     Ok(b)
 }
 
-fn proxy(host: String) {
-    let listener = TcpListener::bind(host).unwrap();
+fn proxy(addr: String, port: u16) {
+    let listener = TcpListener::bind(format!("{}:{}", addr, port)).unwrap();
     loop {
         match listener.accept() {
             Ok((mut sock, _)) => {
@@ -229,6 +247,7 @@ fn proxy(host: String) {
 }
 
 fn main() {
-    proxy("0.0.0.0:8080".to_string())
+    let opt = set_options(&mut env::args()).unwrap();
+    proxy(opt.listen_addr, opt.listen_port)
 }
 
