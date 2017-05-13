@@ -1,10 +1,11 @@
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{TcpListener, TcpStream, Shutdown};
 use std::time::{Duration};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::fmt;
 use std::clone;
+use std::thread;
 
 #[derive(Clone)]
 enum HttpMethod {
@@ -88,11 +89,7 @@ impl clone::Clone for HttpRequest {
     }
 }
 
-//fn reply(sock: &mut TcpStream, res: HttpRequest) -> Result<(), &'static str> {
-//    Ok(())
-//}
-
-fn sendrecv_data(mut req: HttpRequest) -> Result<HttpRequest, String> {
+fn sendrecv_data(mut req: HttpRequest, mut sock: TcpStream) -> Result<(), String> {
     let host = match req.headers.entry("Host".to_string()) {
         Occupied(e) => {
             e.get().clone()
@@ -109,17 +106,22 @@ fn sendrecv_data(mut req: HttpRequest) -> Result<HttpRequest, String> {
 
     let _ = stream.write_all(format!("{}", req).as_bytes());
 
-    //let mut data = Vec::new();
-    let mut buf = [0; 64*1024];
-    let readsize = stream.read(&mut buf).unwrap();
-    //let _ = data.write_all(&buf[0..readsize]).unwrap();
-    println!("{}", String::from_utf8_lossy(&buf[0..readsize]));
-
-    Ok(req.clone())
+    loop {
+        let mut buf = [0; 64*1024];
+        let readsize = stream.read(&mut buf).unwrap();
+        if readsize == 0 {
+            sock.shutdown(Shutdown::Both);
+            break;
+        }
+        sock.write_all(&buf[0..readsize]).unwrap();
+    }
+    Ok(())
 }
 
 fn camouflage_client(req: &mut HttpRequest) {
     req.headers.remove("Proxy-Connection");
+    /*  */
+    req.headers.remove("Accept-Encoding");
 
     const SCHM: &str = "http://";
     if &req.uri[0..SCHM.len()] == SCHM {
@@ -193,6 +195,7 @@ fn read_data(sock: &mut TcpStream) -> Result<HttpRequest, std::io::Error> {
         match sock.read(&mut buf) {
             Ok(readsize) => {
                 if readsize == 0 { break; }
+                println!("{}", String::from_utf8_lossy(&buf[0..readsize]));
                 data.write_all(&buf[0..readsize]).unwrap();
                 if readsize < buf.len() { break; }
             },
@@ -211,10 +214,11 @@ fn proxy(host: String) {
     loop {
         match listener.accept() {
             Ok((mut sock, _)) => {
-                let mut req = read_data(&mut sock).unwrap();
-                camouflage_client(&mut req);
-                let response = sendrecv_data(req).unwrap();
-                //reply(sock, response);
+                thread::spawn(|| {
+                    let mut req = read_data(&mut sock).unwrap();
+                    camouflage_client(&mut req);
+                    sendrecv_data(req, sock);
+                });
             },
             Err(e) => {
                 println!("Error: accept failed: {}", e);
