@@ -93,6 +93,7 @@ impl clone::Clone for HttpRequest {
 struct RToption {
     listen_addr: String,
     listen_port: u16,
+    verbose:     i32,
 }
 
 fn print_usage(args:&mut env::Args) {
@@ -103,6 +104,7 @@ fn set_options(args:&mut env::Args) -> Result<RToption, String> {
     let o = RToption {
         listen_addr: "0.0.0.0".to_string(),
         listen_port: 8080,
+        verbose:     0,
     };
     Ok(o)
 }
@@ -113,20 +115,24 @@ fn sendrecv_data(mut req: HttpRequest, mut sock: TcpStream) -> Result<(), String
             e.get().clone()
         },
         Vacant(_) => {
-            return Err("Error: no host".to_string())
+            return Err("Error: no Host header founds in HTTP request".to_string())
         },
     };
 
-    let mut stream = match TcpStream::connect(format!("{}:80", host)) {
-        Ok(stream) => stream,
-        Err(e)     => return Err(e.to_string()),
+    let host = match host.find(':') {
+        Some(_) => host,
+        None    => format!("{}:80", host),
+    };
+    let mut s = match TcpStream::connect(host) {
+        Ok(s)  => s,
+        Err(e) => return Err(e.to_string()),
     };
 
-    let _ = stream.write_all(format!("{}", req).as_bytes());
+    let _ = s.write_all(format!("{}", req).as_bytes());
 
     loop {
         let mut buf = [0; 64*1024];
-        let readsize = stream.read(&mut buf).unwrap();
+        let readsize = s.read(&mut buf).unwrap();
         if readsize == 0 {
             break;
         }
@@ -232,6 +238,7 @@ fn recv_http_request(sock: &mut TcpStream) -> Result<HttpRequest, std::io::Error
 
     let req_str = String::from_utf8_lossy(data.as_slice()).into_owned();
     let b = parse_header(req_str.to_string()).unwrap();
+    //println!("{}", b);
     Ok(b)
 }
 
