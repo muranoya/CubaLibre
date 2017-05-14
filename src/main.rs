@@ -141,6 +141,9 @@ fn camouflage_client(req: &mut HttpRequest) {
     /* そのうちなんとかする */
     req.headers.remove("Accept-Encoding");
 
+    req.headers.insert("Cache-Control".to_string(), "max-age=0".to_string());
+    req.headers.insert("Connection".to_string(), "keep-alive".to_string());
+
     const SCHM: &str = "http://";
     if &req.uri[0..SCHM.len()] == SCHM {
         let uri = req.uri.clone();
@@ -213,7 +216,7 @@ fn read_data(sock: &mut TcpStream) -> Result<HttpRequest, std::io::Error> {
         match sock.read(&mut buf) {
             Ok(readsize) => {
                 if readsize == 0 { break; }
-                println!("{}", String::from_utf8_lossy(&buf[0..readsize]));
+                //println!("{}", String::from_utf8_lossy(&buf[0..readsize]));
                 data.write_all(&buf[0..readsize]).unwrap();
                 if readsize < buf.len() { break; }
             },
