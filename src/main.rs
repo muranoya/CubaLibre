@@ -93,16 +93,18 @@ impl clone::Clone for HttpRequest {
 struct RToption {
     listen_addr: String,
     listen_port: u16,
+    verbose:     i32,
 }
 
 fn print_usage(args:&mut env::Args) {
-    println!("Usage: {} [port]", args.nth(0).unwrap());
+    println!("Usage: {}", args.nth(0).unwrap());
 }
 
 fn set_options(args:&mut env::Args) -> Result<RToption, String> {
     let o = RToption {
         listen_addr: "0.0.0.0".to_string(),
         listen_port: 8080,
+        verbose:     0,
     };
     Ok(o)
 }
@@ -113,22 +115,25 @@ fn sendrecv_data(mut req: HttpRequest, mut sock: TcpStream) -> Result<(), String
             e.get().clone()
         },
         Vacant(_) => {
-            return Err("Error: no host".to_string())
+            return Err("Error: no Host header founds in HTTP request".to_string())
         },
     };
 
-    let mut stream = match TcpStream::connect(format!("{}:80", host)) {
-        Ok(stream) => stream,
-        Err(e)     => return Err(e.to_string()),
+    let host = match host.find(':') {
+        Some(_) => host,
+        None    => format!("{}:80", host),
+    };
+    let mut s = match TcpStream::connect(host) {
+        Ok(s)  => s,
+        Err(e) => return Err(e.to_string()),
     };
 
-    let _ = stream.write_all(format!("{}", req).as_bytes());
+    let _ = s.write_all(format!("{}", req).as_bytes());
 
     loop {
         let mut buf = [0; 64*1024];
-        let readsize = stream.read(&mut buf).unwrap();
+        let readsize = s.read(&mut buf).unwrap();
         if readsize == 0 {
-            sock.shutdown(Shutdown::Both);
             break;
         }
         sock.write_all(&buf[0..readsize]).unwrap();
@@ -159,7 +164,7 @@ fn camouflage_client(req: &mut HttpRequest) {
     }
 }
 
-fn parse_header(head: String) -> Result<HttpRequest, &'static str> {
+fn parse_header(head: String) -> Result<HttpRequest, String> {
     let h:       Vec<&str> = head.splitn(2, "\r\n\r\n").collect();
     let heads:   Vec<&str> = h[0].split("\r\n").collect();
     let cmdline: Vec<&str> = heads[0].splitn(3, ' ').collect();
@@ -173,7 +178,9 @@ fn parse_header(head: String) -> Result<HttpRequest, &'static str> {
         "DELETE"  => HttpMethod::DELETE,
         "TRACE"   => HttpMethod::TRACE,
         "PATCH"   => HttpMethod::PATCH,
-        _         => return Err("Error: invalid HTTP method"),
+        _         => {
+            return Err(format!("Error: invalid HTTP method({})", cmdline[0]))
+        }
     };
     let uri = cmdline[1];
     let hver = if cmdline.len() == 2 {
@@ -182,7 +189,9 @@ fn parse_header(head: String) -> Result<HttpRequest, &'static str> {
         match cmdline[2] {
             "HTTP/1.0" => HttpVersion::Http1_0,
             "HTTP/1.1" => HttpVersion::Http1_1,
-            _          => return Err("Error: unknown HTTP version specifier"),
+            _          => {
+                return Err(format!("Error: unknown HTTP version specifier({})", cmdline[2]))
+            }
         }
     };
 
@@ -206,19 +215,24 @@ fn parse_header(head: String) -> Result<HttpRequest, &'static str> {
     })
 }
 
-fn read_data(sock: &mut TcpStream) -> Result<HttpRequest, std::io::Error> {
-    //let to = Duration::new(30, 0);
-    //let _ = sock.set_read_timeout(Some(to));
+fn recv_http_request(sock: &mut TcpStream) -> Result<HttpRequest, std::io::Error> {
+    let to = Duration::new(30, 0);
+    let _ = sock.set_read_timeout(Some(to));
     
     let mut data: Vec<u8> = Vec::new();
     let mut buf = [0; 64*1024];
     loop {
         match sock.read(&mut buf) {
             Ok(readsize) => {
-                if readsize == 0 { break; }
+                if readsize == 0 {
+                    break;
+                }
                 //println!("{}", String::from_utf8_lossy(&buf[0..readsize]));
                 data.write_all(&buf[0..readsize]).unwrap();
-                if readsize < buf.len() { break; }
+                if data.len() > 4 &&
+                    data[data.len()-4..data.len()] == [13, 10, 13, 10] {
+                    break;
+                }
             },
             Err(e) => {
                 return Err(e)
@@ -226,7 +240,9 @@ fn read_data(sock: &mut TcpStream) -> Result<HttpRequest, std::io::Error> {
         }
     }
 
-    let b = parse_header(String::from_utf8(data.clone()).unwrap()).unwrap();
+    let req_str = String::from_utf8_lossy(data.as_slice()).into_owned();
+    let b = parse_header(req_str.to_string()).unwrap();
+    //println!("{}", b);
     Ok(b)
 }
 
@@ -235,15 +251,14 @@ fn proxy(addr: String, port: u16) {
     loop {
         match listener.accept() {
             Ok((mut sock, _)) => {
-                thread::spawn(|| {
-                    let mut req = read_data(&mut sock).unwrap();
+                thread::spawn(move || {
+                    let mut req = recv_http_request(&mut sock).unwrap();
                     camouflage_client(&mut req);
                     sendrecv_data(req, sock);
                 });
             },
             Err(e) => {
                 println!("Error: accept failed: {}", e);
-                return
             },
         }
     }
