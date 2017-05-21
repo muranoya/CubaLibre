@@ -1,5 +1,5 @@
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream, Shutdown};
+use std::net::{TcpListener, TcpStream};
 use std::time::{Duration};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
@@ -37,17 +37,17 @@ impl fmt::Display for HttpMethod {
 
 #[derive(Clone)]
 enum HttpVersion {
-    Http0_9,
-    Http1_0,
-    Http1_1,
+    Http09,
+    Http10,
+    Http11,
 }
 
 impl fmt::Display for HttpVersion {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", match self {
-            &HttpVersion::Http0_9 => "",
-            &HttpVersion::Http1_0 => "HTTP/1.0",
-            &HttpVersion::Http1_1 => "HTTP/1.1",
+            &HttpVersion::Http09 => "",
+            &HttpVersion::Http10 => "HTTP/1.0",
+            &HttpVersion::Http11 => "HTTP/1.1",
         })
     }
 }
@@ -109,6 +109,7 @@ fn set_options(args:&mut env::Args) -> Result<RToption, String> {
     Ok(o)
 }
 
+/*
 fn sendrecv_data(mut req: HttpRequest, mut sock: TcpStream) -> Result<(), String> {
     let host = match req.headers.entry("Host".to_string()) {
         Occupied(e) => {
@@ -263,9 +264,58 @@ fn proxy(addr: String, port: u16) {
         }
     }
 }
+*/
+
+fn http_request_parse<F>(s:& F) -> Result<HttpRequest, String>
+where F: FnOnce(usize) -> Result<Vec<u8>, String> {
+    
+    Err("".to_string())
+}
+
+fn proxy(addr: String, port: u16) -> Result<(), String> {
+    let listener = TcpListener::bind(format!("{}:{}", addr, port)).unwrap();
+    loop {
+        match listener.accept() {
+            Ok((mut sock, _)) => {
+                let to = Duration::new(30, 0);
+                let _ = sock.set_read_timeout(Some(to));
+                thread::spawn(move || {
+                    let mut sock = sock;
+                    let tcp_reader = |req: usize| -> Result<Vec<u8>, String> {
+                        let mut buf = [0; 32*1024];
+                        let mut data: Vec<u8> = Vec::new();
+                        let mut amount:usize = 0;
+                        loop {
+                            match sock.read(&mut buf[0..req-amount]) {
+                                Ok(readsize) => {
+                                    amount += readsize;
+                                    data.write_all(&buf[0..readsize]).unwrap();
+                                },
+                                Err(e) => {
+                                    return Err(format!("{}", e))
+                                },
+                            }
+                            if amount == req {
+                                break;
+                            }
+                        }
+                        Ok(data)
+                    };
+
+                    loop {
+                        let req = http_request_parse(&tcp_reader);
+                    }
+                });
+            },
+            Err(e) => {
+                return Err(format!("{}", e))
+            },
+        }
+    }
+}
 
 fn main() {
     let opt = set_options(&mut env::args()).unwrap();
-    proxy(opt.listen_addr, opt.listen_port)
+    proxy(opt.listen_addr, opt.listen_port);
 }
 
