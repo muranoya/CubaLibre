@@ -60,6 +60,36 @@ struct HttpRequest {
     body:    Vec<u8>,
 }
 
+impl HttpRequest {
+    fn contentlength(&mut self) -> Option<u32> {
+        match self.has_key("Content-Length".to_string()) {
+            Some(s) => Some(s.parse::<u32>().unwrap()),
+            None    => None,
+        }
+    }
+    fn keepalive(&mut self) -> Option<()> {
+        match self.has_key("Proxy-Connection".to_string()) {
+            Some(_) => Some(()),
+            None    => None,
+        }
+    }
+    fn has_key(&mut self, key: String) -> Option<String> {
+        match self.headers.entry(key) {
+            Occupied(e) => Some(e.get().clone()),
+            Vacant(_)   => None,
+        }
+    }
+    fn insert_header(&mut self, key: String, val: String) {
+        self.has_key(key.clone()).unwrap_or_else(move || {
+            self.headers.insert(key, val);
+            "".to_string()
+        });
+    }
+    fn remove_header(&mut self, key: String) {
+        self.has_key(key.clone()).and_then(|| self.headers.remove(key));
+    }
+}
+
 impl fmt::Display for HttpRequest {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let _ = write!(f, "{} {} {}\r\n", self.method, self.uri, self.version);
@@ -107,6 +137,78 @@ fn set_options(args:&mut env::Args) -> Result<RToption, String> {
         verbose:     0,
     };
     Ok(o)
+}
+
+fn find_vec_in_vec(vec: &Vec<u8>, sdata: &[u8], pos: usize) -> (usize, bool) {
+    let len1 = vec.len();
+    let len2 = sdata.len();
+    if len1 < len2 {
+        return (0, false)
+    }
+    for i in pos..len1-len2+1 {
+        if &vec[i..i+len2] == sdata {
+            return (i, true)
+        }
+    }
+    (len1, false)
+}
+
+#[test]
+fn test_find_vec_in_vec() {
+    {
+        let vec = vec![0, 1, 2, 3, 4];
+        let sd = [0, 1, 2, 3, 4];
+        assert_eq!(find_vec_in_vec(&vec, &sd, 0), (0, true));
+    }
+    {
+        let vec = vec![0, 1, 2, 3, 4];
+        let sd = [0, 1];
+        assert_eq!(find_vec_in_vec(&vec, &sd, 0), (0, true));
+    }
+    {
+        let vec = vec![0, 1, 2, 3, 4];
+        let sd = [1, 2];
+        assert_eq!(find_vec_in_vec(&vec, &sd, 0), (1, true));
+    }
+    {
+        let vec = vec![0, 1, 2, 3, 4];
+        let sd = [3, 4];
+        assert_eq!(find_vec_in_vec(&vec, &sd, 0), (3, true));
+    }
+    {
+        let vec = vec![0, 1, 2, 3, 4];
+        let sd = [2, 3, 4];
+        assert_eq!(find_vec_in_vec(&vec, &sd, 0), (2, true));
+    }
+    
+    {
+        let vec = vec![0, 1, 2, 3, 4];
+        let sd = [7, 8];
+        assert_eq!(find_vec_in_vec(&vec, &sd, 0), (5, false));
+    }
+
+    {
+        let vec = vec![0, 1, 2, 3, 4];
+        let sd = [3, 4];
+        assert_eq!(find_vec_in_vec(&vec, &sd, 3), (3, true));
+    }
+    {
+        let vec = vec![0, 1, 2, 3, 4];
+        let sd = [3, 4];
+        assert_eq!(find_vec_in_vec(&vec, &sd, 4), (5, false));
+    }
+
+    {
+        let vec = vec![0, 1];
+        let sd = [0, 1, 2];
+        assert_eq!(find_vec_in_vec(&vec, &sd, 0), (0, false));
+    }
+
+    {
+        let vec = vec![0, 1, 2, 3];
+        let sd = [0, 1, 2];
+        assert_eq!(find_vec_in_vec(&vec, &sd, 10), (4, false));
+    }
 }
 
 /*
