@@ -1,5 +1,5 @@
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{TcpListener};
 use std::time::{Duration};
 use std::collections::HashMap;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
@@ -9,6 +9,7 @@ use std::thread;
 use std::env;
 
 #[derive(Clone)]
+#[allow(dead_code)]
 enum HttpMethod {
     GET,
     POST,
@@ -36,6 +37,7 @@ impl fmt::Display for HttpMethod {
 }
 
 #[derive(Clone)]
+#[allow(dead_code)]
 enum HttpVersion {
     Http09,
     Http10,
@@ -86,7 +88,7 @@ impl HttpRequest {
         });
     }
     fn remove_header(&mut self, key: String) {
-        self.has_key(key.clone()).and_then(|| self.headers.remove(key));
+        self.headers.remove(&key);
     }
 }
 
@@ -244,80 +246,6 @@ fn sendrecv_data(mut req: HttpRequest, mut sock: TcpStream) -> Result<(), String
     Ok(())
 }
 
-fn camouflage_client(req: &mut HttpRequest) {
-    req.headers.remove("Proxy-Connection");
-    /* そのうちなんとかする */
-    req.headers.remove("Accept-Encoding");
-
-    req.headers.insert("Cache-Control".to_string(), "max-age=0".to_string());
-    req.headers.insert("Connection".to_string(), "keep-alive".to_string());
-
-    const SCHM: &str = "http://";
-    if &req.uri[0..SCHM.len()] == SCHM {
-        let uri = req.uri.clone();
-        let substr = &uri[SCHM.len()..];
-        match substr.find('/') {
-            Some(pos) => {
-                req.uri = substr[pos..].to_string();
-            },
-            None => {
-                req.uri = "/".to_string();
-            },
-        }
-    }
-}
-
-fn parse_header(head: String) -> Result<HttpRequest, String> {
-    let h:       Vec<&str> = head.splitn(2, "\r\n\r\n").collect();
-    let heads:   Vec<&str> = h[0].split("\r\n").collect();
-    let cmdline: Vec<&str> = heads[0].splitn(3, ' ').collect();
-    
-    let cmd = match cmdline[0] {
-        "GET"     => HttpMethod::GET,
-        "POST"    => HttpMethod::POST,
-        "HEAD"    => HttpMethod::HEAD,
-        "OPTIONS" => HttpMethod::OPTIONS,
-        "PUT"     => HttpMethod::PUT,
-        "DELETE"  => HttpMethod::DELETE,
-        "TRACE"   => HttpMethod::TRACE,
-        "PATCH"   => HttpMethod::PATCH,
-        _         => {
-            return Err(format!("Error: invalid HTTP method({})", cmdline[0]))
-        }
-    };
-    let uri = cmdline[1];
-    let hver = if cmdline.len() == 2 {
-        HttpVersion::Http0_9
-    } else {
-        match cmdline[2] {
-            "HTTP/1.0" => HttpVersion::Http1_0,
-            "HTTP/1.1" => HttpVersion::Http1_1,
-            _          => {
-                return Err(format!("Error: unknown HTTP version specifier({})", cmdline[2]))
-            }
-        }
-    };
-
-    let mut map = HashMap::new();
-    for i in 1..heads.len() {
-        if heads[i].len() > 0 {
-            let kv: Vec<&str> = heads[i].splitn(2, ": ").collect();
-            map.insert(kv[0].to_string(), kv[1].to_string());
-        }
-    }
-
-    let mut body = Vec::new();
-    let _ = body.write_all(h[1].as_bytes());
-
-    Ok(HttpRequest {
-        method:  cmd,
-        version: hver,
-        uri:     uri.to_string(),
-        headers: map,
-        body:    body,
-    })
-}
-
 fn recv_http_request(sock: &mut TcpStream) -> Result<HttpRequest, std::io::Error> {
     let to = Duration::new(30, 0);
     let _ = sock.set_read_timeout(Some(to));
@@ -348,64 +276,144 @@ fn recv_http_request(sock: &mut TcpStream) -> Result<HttpRequest, std::io::Error
     //println!("{}", b);
     Ok(b)
 }
+*/
 
-fn proxy(addr: String, port: u16) {
-    let listener = TcpListener::bind(format!("{}:{}", addr, port)).unwrap();
-    loop {
-        match listener.accept() {
-            Ok((mut sock, _)) => {
-                thread::spawn(move || {
-                    let mut req = recv_http_request(&mut sock).unwrap();
-                    camouflage_client(&mut req);
-                    sendrecv_data(req, sock);
-                });
+fn camouflage_client(mut req: HttpRequest) -> HttpRequest {
+    req.remove_header("Proxy-Connection".to_string());
+    req.remove_header("Accept-Encoding".to_string());
+
+    req.insert_header("Cache-Control".to_string(), "max-age=0".to_string());
+    req.insert_header("Connection".to_string(), "keep-alive".to_string());
+
+    const SCHM: &str = "http://";
+    if &req.uri[0..SCHM.len()] == SCHM {
+        let uri = req.uri.clone();
+        let substr = &uri[SCHM.len()..];
+        match substr.find('/') {
+            Some(pos) => {
+                req.uri = substr[pos..].to_string();
             },
-            Err(e) => {
-                println!("Error: accept failed: {}", e);
+            None => {
+                req.uri = "/".to_string();
             },
         }
     }
-}
-*/
 
-fn http_request_parse<F>(s:& F) -> Result<HttpRequest, String>
-where F: FnOnce(usize) -> Result<Vec<u8>, String> {
-    
-    Err("".to_string())
+    req
+}
+
+fn parse_header(head: String) -> Result<HttpRequest, String> {
+    let heads:   Vec<&str> = head.split("\r\n").collect();
+    let cmdline: Vec<&str> = heads[0].splitn(3, ' ').collect();
+
+    let cmd = match cmdline[0] {
+        "GET"     => HttpMethod::GET,
+        "POST"    => HttpMethod::POST,
+        "HEAD"    => HttpMethod::HEAD,
+        "OPTIONS" => HttpMethod::OPTIONS,
+        "PUT"     => HttpMethod::PUT,
+        "DELETE"  => HttpMethod::DELETE,
+        "TRACE"   => HttpMethod::TRACE,
+        "PATCH"   => HttpMethod::PATCH,
+        _         => {
+            return Err(format!("Error: invalid HTTP method({})", cmdline[0]))
+        }
+    };
+    let uri = cmdline[1];
+    let hver = if cmdline.len() == 2 {
+        HttpVersion::Http09
+    } else {
+        match cmdline[2] {
+            "HTTP/1.0" => HttpVersion::Http10,
+            "HTTP/1.1" => HttpVersion::Http11,
+            _          => {
+                return Err(format!("Error: unknown HTTP version specifier({})", cmdline[2]))
+            }
+        }
+    };
+
+    let mut map = HashMap::new();
+    for i in 1..heads.len() {
+        if heads[i].len() > 0 {
+            let kv: Vec<&str> = heads[i].splitn(2, ": ").collect();
+            map.insert(kv[0].to_string(), kv[1].to_string());
+        }
+    }
+
+    Ok(HttpRequest {
+        method:  cmd,
+        version: hver,
+        uri:     uri.to_string(),
+        headers: map,
+        body:    Vec::new(),
+    })
+}
+
+fn http_request_parse<F>(reader: &mut F) -> Result<HttpRequest, String>
+where F: FnMut() -> Result<Vec<u8>, String> {
+    let mut data: Vec<u8> = Vec::new();
+    let mut pos: usize = 0;
+    loop {
+        match reader() {
+            Ok(mut d) => {
+                data.append(&mut d);
+                let (s, b) = find_vec_in_vec(&data, &[13, 10, 13, 10], pos);
+                pos = s;
+                if b { break; }
+            },
+            Err(e)    => {
+                return Err(e)
+            },
+        }
+    }
+
+    match parse_header(String::from_utf8_lossy(&data[0..pos]).into_owned()) {
+        Ok(header) => {
+            // Content-lengthが必須なHTTPメソッドの場合
+            //   Content-lengthが必須なHTTPメソッドなのに無い場合はエラー
+            // Content-lengthが必須でないHTTPメソッドの場合
+            //   これで終わり
+            return Ok(header)
+        },
+        Err(e)     => {
+            return Err(e)
+        },
+    }
+}
+
+#[test]
+fn test_http_request_parse() {
 }
 
 fn proxy(addr: String, port: u16) -> Result<(), String> {
     let listener = TcpListener::bind(format!("{}:{}", addr, port)).unwrap();
     loop {
         match listener.accept() {
-            Ok((mut sock, _)) => {
+            Ok((sock, _)) => {
                 let to = Duration::new(30, 0);
                 let _ = sock.set_read_timeout(Some(to));
                 thread::spawn(move || {
                     let mut sock = sock;
-                    let tcp_reader = |req: usize| -> Result<Vec<u8>, String> {
+                    let mut tcp_reader = || -> Result<Vec<u8>, String> {
                         let mut buf = [0; 32*1024];
                         let mut data: Vec<u8> = Vec::new();
-                        let mut amount:usize = 0;
-                        loop {
-                            match sock.read(&mut buf[0..req-amount]) {
-                                Ok(readsize) => {
-                                    amount += readsize;
+                        match sock.read(&mut buf) {
+                            Ok(readsize) => {
+                                if readsize > 0 {
                                     data.write_all(&buf[0..readsize]).unwrap();
-                                },
-                                Err(e) => {
-                                    return Err(format!("{}", e))
-                                },
-                            }
-                            if amount == req {
-                                break;
-                            }
+                                }
+                            },
+                            Err(e) => {
+                                return Err(format!("{}", e))
+                            },
                         }
                         Ok(data)
                     };
 
                     loop {
-                        let req = http_request_parse(&tcp_reader);
+                        let req = http_request_parse(&mut tcp_reader).unwrap();
+                        let req = camouflage_client(req);
+                        println!("{}", req);
                     }
                 });
             },
@@ -418,6 +426,6 @@ fn proxy(addr: String, port: u16) -> Result<(), String> {
 
 fn main() {
     let opt = set_options(&mut env::args()).unwrap();
-    proxy(opt.listen_addr, opt.listen_port);
+    let _ = proxy(opt.listen_addr, opt.listen_port);
 }
 
